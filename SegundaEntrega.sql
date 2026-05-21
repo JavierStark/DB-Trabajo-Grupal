@@ -79,7 +79,8 @@ COMMIT;
 EXEC PR_MATRICULA_ESTUDIANTES;
 
 -- Vista materializada y sinonimo
-CONNECT pau/pau@FREEPDB1
+-- IMPORTANTE: Cambiar sesion a usuario PAU antes de continuar
+ALTER SESSION SET CURRENT_SCHEMA = PAU;
 
 CREATE MATERIALIZED VIEW VM_ESTUDIANTES
 BUILD IMMEDIATE
@@ -93,7 +94,8 @@ JOIN PAU.CENTRO c ON e.Centro_Codigo = c.Codigo;
 
 CREATE PUBLIC SYNONYM S_ESTUDIANTES FOR VM_ESTUDIANTES;
 
-CONNECT sys/oracle@FREEPDB1 as sysdba
+-- IMPORTANTE: Cambiar sesion a SYS antes de continuar
+-- En SQL Developer: conexion como SYS
 ALTER SESSION SET CURRENT_SCHEMA = PAU;
 
 

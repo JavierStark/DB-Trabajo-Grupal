@@ -6,8 +6,8 @@
 -- Incluye Primera, Segunda y Tercera Entrega + Rubrica completa
 -- ============================================================================
 -- INSTRUCCIONES:
---   1. Conectarse como SYS a la PDB (FREEPDB1)
---   2. Copiar datos-estudiantes-pau.csv al directorio dpdump de Oracle
+--   1. Conectarse como SYS a la PDB
+--   2. Copiar datos-estudiantes-pau.csv al directorio dpdump de Oracle (ej: C:\app\alumnos\admin\orcl\dpdump)
 --   3. Ejecutar este script completo
 -- ============================================================================
 
@@ -34,6 +34,7 @@ GRANT CREATE VIEW, CREATE MATERIALIZED VIEW, CREATE PROCEDURE,
       CREATE SEQUENCE, CREATE TRIGGER, CREATE SYNONYM, CREATE PUBLIC SYNONYM TO PAU;
 
 -- Directorio para tabla externa
+-- CAMBIAR LA RUTA por la de tu sistema (ej: Windows: C:\app\alumnos\admin\orcl\dpdump)
 CREATE OR REPLACE DIRECTORY directorio_ext AS '/opt/oracle/admin/FREE/dpdump';
 GRANT READ, WRITE ON DIRECTORY directorio_ext TO PAU;
 
@@ -651,7 +652,8 @@ COMMIT;
 EXEC PR_MATRICULA_ESTUDIANTES;
 
 -- Vista materializada y sinonimo (conectar como PAU para evitar restricciones de SYS)
-CONNECT pau/pau@FREEPDB1
+-- IMPORTANTE: Cambiar sesion a usuario PAU antes de continuar
+ALTER SESSION SET CURRENT_SCHEMA = PAU;
 
 CREATE MATERIALIZED VIEW VM_ESTUDIANTES
 BUILD IMMEDIATE
@@ -665,7 +667,8 @@ JOIN PAU.CENTRO c ON e.Centro_Codigo = c.Codigo;
 
 CREATE PUBLIC SYNONYM S_ESTUDIANTES FOR VM_ESTUDIANTES;
 
-CONNECT sys/oracle@FREEPDB1 as sysdba
+-- IMPORTANTE: Cambiar sesion a SYS antes de continuar
+-- En SQL Developer: nueva conexion como SYS
 ALTER SESSION SET CURRENT_SCHEMA = PAU;
 
 

@@ -2,7 +2,7 @@
 -- PRUEBAS COMPLETAS - TRABAJO GRUPO PAU
 -- BD II - ETSI Informatica - Universidad de Malaga
 -- ============================================================================
--- EJECUTAR COMO PAU en FREEPDB1
+-- EJECUTAR COMO PAU
 -- ============================================================================
 
 SET SERVEROUTPUT ON SIZE UNLIMITED
@@ -131,7 +131,7 @@ DECLARE
   v_pass VARCHAR2(50);
 BEGIN
   -- Usar DNI conocidos (VPD oculta ESTUDIANTE a PAU)
-  PK_SEGURIDAD_PAU.PR_CREA_ESTUDIANTE('54809500W', v_user, v_pass);
+  PK_SEGURIDAD_PAU.PR_CREA_ESTUDIANTE('57611188C', v_user, v_pass);
   DBMS_OUTPUT.PUT_LINE('Usuario estudiante creado: ' || v_user || ' / ' || v_pass);
   
   PK_SEGURIDAD_PAU.PR_CREA_VOCAL('95115697E', v_user, v_pass);

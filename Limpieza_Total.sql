@@ -2,7 +2,7 @@
 -- LIMPIEZA TOTAL - TRABAJO GRUPO PAU
 -- BD II - ETSI Informatica - Universidad de Malaga
 --
--- EJECUTAR COMO SYS en FREEPDB1
+-- EJECUTAR COMO SYS
 -- Elimina TODO: usuarios dinámicos, roles, VPD, auditoría, objetos PAU,
 -- el usuario PAU, y los tablespaces.
 -- ============================================================================

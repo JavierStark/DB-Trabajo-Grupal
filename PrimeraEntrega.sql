@@ -4,8 +4,8 @@
 -- Universidad de Malaga -- ETSI Informatica -- 2025-26
 -- ============================================================================
 -- INSTRUCCIONES:
---   1. Conectarse como SYS a la PDB (FREEPDB1)
---   2. Copiar datos-estudiantes-pau.csv al directorio dpdump de Oracle
+--   1. Conectarse como SYS a la PDB
+--   2. Copiar datos-estudiantes-pau.csv al directorio dpdump de Oracle (ej: C:\app\alumnos\admin\orcl\dpdump)
 --   3. Ejecutar este script completo
 -- ============================================================================
 
@@ -29,6 +29,7 @@ GRANT CREATE VIEW, CREATE MATERIALIZED VIEW, CREATE PROCEDURE,
       CREATE SEQUENCE, CREATE TRIGGER, CREATE SYNONYM, CREATE PUBLIC SYNONYM TO PAU;
 
 -- Directorio para tabla externa
+-- CAMBIAR LA RUTA por la de tu sistema (ej: Windows: C:\app\alumnos\admin\orcl\dpdump)
 CREATE OR REPLACE DIRECTORY directorio_ext AS '/opt/oracle/admin/FREE/dpdump';
 GRANT READ, WRITE ON DIRECTORY directorio_ext TO PAU;
 
