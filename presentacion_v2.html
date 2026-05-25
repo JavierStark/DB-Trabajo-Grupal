@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestión PAU — Oracle Database</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#05080f;
+  --surface:#0c1220;
+  --card:#111827;
+  --border:#1e2d42;
+  --blue:#60a5fa;
+  --teal:#2dd4bf;
+  --violet:#a78bfa;
+  --amber:#fbbf24;
+  --pink:#f472b6;
+  --text:#f1f5f9;
+  --dim:#64748b;
+  --mid:#94a3b8;
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;}
+
+.deck{width:100vw;height:100vh;position:relative;}
+
+.slide{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;
+  padding:6vh 7vw 5vh;
+  opacity:0;visibility:hidden;
+  transition:opacity .4s ease;
+  overflow:hidden;
+}
+.slide.active{opacity:1;visibility:visible;}
+
+.prog{position:absolute;bottom:0;left:0;height:3px;background:var(--blue);transition:width 1s linear;width:0%;}
+
+/* Typography */
+.eyebrow{font-size:clamp(11px,1.2vw,14px);letter-spacing:.18em;text-transform:uppercase;color:var(--dim);margin-bottom:1.2vh;}
+.title{font-size:clamp(36px,5.5vw,72px);font-weight:800;line-height:1;letter-spacing:-.03em;margin-bottom:2.5vh;}
+.subtitle{font-size:clamp(16px,1.8vw,24px);color:var(--mid);font-weight:400;line-height:1.4;}
+
+/* Accent spans */
+.ac-blue{color:var(--blue);}
+.ac-teal{color:var(--teal);}
+.ac-violet{color:var(--violet);}
+.ac-amber{color:var(--amber);}
+.ac-pink{color:var(--pink);}
+
+/* Stat block */
+.stats{display:flex;gap:clamp(12px,2vw,32px);margin-top:4vh;}
+.stat{display:flex;flex-direction:column;gap:4px;}
+.stat-n{font-size:clamp(40px,5.5vw,72px);font-weight:800;line-height:1;color:var(--blue);}
+.stat-l{font-size:clamp(12px,1.1vw,15px);color:var(--dim);text-transform:uppercase;letter-spacing:.1em;}
+.stat-sep{width:1px;background:var(--border);align-self:stretch;}
+
+/* Body layouts */
+.body{flex:1;display:flex;gap:clamp(20px,3vw,48px);min-height:0;}
+.col{flex:1;display:flex;flex-direction:column;gap:clamp(10px,1.5vh,20px);min-width:0;}
+.divider{width:1px;background:var(--border);flex-shrink:0;}
+
+/* Cards */
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:clamp(16px,2vh,28px) clamp(20px,2vw,32px);}
+.card-label{font-size:clamp(10px,1vw,13px);text-transform:uppercase;letter-spacing:.12em;margin-bottom:.8vh;}
+.card-value{font-size:clamp(20px,2.5vw,34px);font-weight:700;line-height:1.2;}
+.card-desc{font-size:clamp(13px,1.3vw,17px);color:var(--mid);line-height:1.5;margin-top:.6vh;}
+
+/* Big label cards (slide 2) */
+.big-card{
+  flex:1;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:clamp(20px,3vh,40px) clamp(24px,2.5vw,40px);
+  display:flex;flex-direction:column;
+  gap:clamp(8px,1.2vh,16px);
+}
+.big-card-num{font-size:clamp(48px,6vw,80px);font-weight:800;line-height:1;}
+.big-card-name{font-size:clamp(18px,2vw,26px);font-weight:700;line-height:1.2;}
+.big-card-items{display:flex;flex-direction:column;gap:6px;margin-top:auto;}
+.big-card-item{font-size:clamp(13px,1.3vw,17px);color:var(--mid);display:flex;align-items:center;gap:8px;}
+.big-card-item::before{content:'';width:4px;height:4px;border-radius:50%;background:currentColor;flex-shrink:0;}
+
+/* Code */
+pre,code{font-family:'DM Mono',monospace;}
+pre{
+  background:#060b14;
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:clamp(12px,1.5vh,20px) clamp(14px,1.5vw,22px);
+  font-size:clamp(12px,1.2vw,16px);
+  line-height:1.65;
+  overflow:hidden;
+  color:#94a3b8;
+  flex-shrink:0;
+}
+.kw{color:#a78bfa;}
+.fn{color:#fbbf24;}
+.str{color:#2dd4bf;}
+.cm{color:#334155;font-style:italic;}
+
+/* Step list */
+.steps{display:flex;flex-direction:column;gap:clamp(10px,1.5vh,20px);}
+.step{display:flex;gap:clamp(14px,1.5vw,24px);align-items:flex-start;}
+.step-n{
+  flex-shrink:0;
+  width:clamp(32px,3.5vw,48px);height:clamp(32px,3.5vw,48px);
+  border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:clamp(13px,1.3vw,18px);font-weight:800;
+  border:2px solid var(--blue);color:var(--blue);
+}
+.step-content{}
+.step-title{font-size:clamp(15px,1.6vw,22px);font-weight:700;line-height:1.2;}
+.step-desc{font-size:clamp(12px,1.2vw,16px);color:var(--mid);margin-top:3px;line-height:1.4;}
+
+/* Pill badges */
+.pill{
+  display:inline-block;
+  font-size:clamp(10px,.9vw,13px);
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  padding:4px 14px;
+  border-radius:100px;
+  border:1px solid;
+}
+.pill-blue{color:var(--blue);border-color:rgba(96,165,250,.3);background:rgba(96,165,250,.07);}
+.pill-violet{color:var(--violet);border-color:rgba(167,139,250,.3);background:rgba(167,139,250,.07);}
+.pill-teal{color:var(--teal);border-color:rgba(45,212,191,.3);background:rgba(45,212,191,.07);}
+.pill-amber{color:var(--amber);border-color:rgba(251,191,36,.3);background:rgba(251,191,36,.07);}
+
+/* Horizontal rule */
+.h-rule{height:1px;background:var(--border);flex-shrink:0;}
+
+/* Nav */
+.nav{
+  position:fixed;bottom:clamp(16px,3vh,32px);left:50%;
+  transform:translateX(-50%);
+  display:flex;align-items:center;gap:16px;
+  background:rgba(12,18,32,.95);
+  border:1px solid var(--border);
+  border-radius:100px;padding:10px 22px;
+  backdrop-filter:blur(16px);z-index:200;
+}
+.nav button{background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:2px 8px;border-radius:6px;transition:color .15s;font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;}
+.nav button:hover{color:var(--text);}
+.dots{display:flex;gap:6px;}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--border);cursor:pointer;transition:all .25s;}
+.dot.active{background:var(--blue);width:22px;border-radius:3px;}
+.counter{font-size:11px;color:var(--dim);font-weight:700;letter-spacing:.08em;min-width:34px;text-align:center;}
+
+/* Slide 1 flow */
+.flow{display:flex;align-items:center;gap:clamp(8px,1.2vw,20px);flex-wrap:nowrap;}
+.fbox{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:clamp(8px,1vh,14px) clamp(12px,1.4vw,20px);}
+.fbox-label{font-size:clamp(10px,.9vw,13px);color:var(--dim);text-transform:uppercase;letter-spacing:.1em;}
+.fbox-name{font-size:clamp(13px,1.3vw,18px);font-weight:700;}
+.farrow{color:var(--border);font-size:clamp(16px,1.8vw,24px);flex-shrink:0;}
+
+/* Slide 4 layer */
+.layer{
+  display:flex;gap:clamp(16px,2vw,28px);align-items:center;
+  background:var(--card);border:1px solid var(--border);
+  border-radius:12px;padding:clamp(14px,1.8vh,24px) clamp(18px,2vw,28px);
+}
+.layer-icon{
+  flex-shrink:0;
+  width:clamp(44px,5vw,64px);height:clamp(44px,5vw,64px);
+  border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:clamp(20px,2.2vw,30px);font-weight:800;
+}
+.layer-title{font-size:clamp(15px,1.6vw,22px);font-weight:700;line-height:1.2;}
+.layer-desc{font-size:clamp(12px,1.2vw,16px);color:var(--mid);margin-top:3px;line-height:1.4;}
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+<!-- ══ SLIDE 1: Portada ══ -->
+<div class="slide active" data-slide="0">
+  <div class="prog" id="bar0"></div>
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;">
+    <div>
+      <div class="eyebrow">Bases de Datos II · 2025–26</div>
+      <div class="title">Gestión de PAU<br><span class="ac-blue">con Oracle</span></div>
+      <div class="subtitle" style="max-width:56%;">Sistema para la gestión logística de las <strong style="color:var(--text);">Pruebas de Acceso a la Universidad</strong></div>
+    </div>
+    <div>
+      <div class="stats">
+        <div class="stat"><span class="stat-n">10</span><span class="stat-l">Tablas</span></div>
+        <div class="stat-sep"></div>
+        <div class="stat"><span class="stat-n">14</span><span class="stat-l">Foreign Keys</span></div>
+        <div class="stat-sep"></div>
+        <div class="stat"><span class="stat-n ac-teal">1.286</span><span class="stat-l">Líneas SQL</span></div>
+        <div class="stat-sep"></div>
+        <div class="stat"><span class="stat-n ac-violet">3</span><span class="stat-l">Entregas</span></div>
+      </div>
+      <div style="margin-top:4vh;">
+        <div class="eyebrow" style="margin-bottom:1.4vh;">Entregas progresivas</div>
+        <div class="flow">
+          <div class="fbox"><div class="fbox-label">1ª entrega</div><div class="fbox-name">Esquema relacional</div></div>
+          <span class="farrow">→</span>
+          <div class="fbox"><div class="fbox-label">2ª entrega</div><div class="fbox-name">Optimización + datos</div></div>
+          <span class="farrow">→</span>
+          <div class="fbox"><div class="fbox-label">3ª entrega</div><div class="fbox-name">Seguridad + lógica PL/SQL</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SLIDE 2: Esquema BD ══ -->
+<div class="slide" data-slide="1">
+  <div class="prog" id="bar1"></div>
+  <div class="eyebrow">Esquema de la base de datos</div>
+  <div class="title" style="font-size:clamp(28px,4vw,54px);">Modelo relacional</div>
+  <div class="body">
+    <!-- Tablas -->
+    <div class="big-card">
+      <div class="big-card-num ac-blue">10</div>
+      <div class="big-card-name">Tablas principales</div>
+      <div class="big-card-items">
+        <div class="big-card-item" style="color:var(--blue);">VOCAL · SEDE · AULA</div>
+        <div class="big-card-item" style="color:var(--blue);">ESTUDIANTE · ANE · CENTRO</div>
+        <div class="big-card-item" style="color:var(--blue);">EXAMEN · ASISTENCIA</div>
+        <div class="big-card-item" style="color:var(--blue);">EXAMEN_MATERIA · EXAMEN_VOCAL</div>
+      </div>
+    </div>
+    <!-- FKs -->
+    <div class="big-card">
+      <div class="big-card-num ac-teal">14</div>
+      <div class="big-card-name">Claves foráneas</div>
+      <div class="big-card-items">
+        <div class="big-card-item" style="color:var(--teal);">Tabla externa de estudiantes (CSV)</div>
+        <div class="big-card-item" style="color:var(--teal);">Vista materializada — refresco diario</div>
+        <div class="big-card-item" style="color:var(--teal);">Tablespaces separados (datos / índices)</div>
+      </div>
+    </div>
+    <!-- Índices -->
+    <div class="big-card">
+      <div class="big-card-num ac-violet">3</div>
+      <div class="big-card-name">Tipos de índice</div>
+      <div class="big-card-items">
+        <div class="big-card-item" style="color:var(--violet);">Function-based — UPPER(Apellidos)</div>
+        <div class="big-card-item" style="color:var(--violet);">Bitmap — Centro_Codigo</div>
+        <div class="big-card-item" style="color:var(--violet);">Secuencia + trigger auto-incremento</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SLIDE 3: PL/SQL ══ -->
+<div class="slide" data-slide="2">
+  <div class="prog" id="bar2"></div>
+  <div class="eyebrow">Lógica de negocio</div>
+  <div class="title" style="font-size:clamp(28px,4vw,54px);">Paquetes <span class="ac-teal">PL/SQL</span></div>
+  <div class="body">
+    <div class="col">
+      <div class="steps">
+        <div class="step">
+          <div class="step-n" style="border-color:var(--teal);color:var(--teal);">1</div>
+          <div class="step-content">
+            <div class="step-title">PR_INSERTA_MATERIAS · PR_MATRICULA</div>
+            <div class="step-desc">Parsean el CSV e insertan materias y matrículas automáticamente</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-n" style="border-color:var(--blue);color:var(--blue);">2</div>
+          <div class="step-content">
+            <div class="step-title">PK_ASIGNA — Algoritmo greedy</div>
+            <div class="step-desc">Empareja centros con sedes por nombre; el resto, a la sede con más plazas</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-n" style="border-color:var(--violet);color:var(--violet);">3</div>
+          <div class="step-content">
+            <div class="step-title">PK_OCUPACION — 5 funciones</div>
+            <div class="step-desc">Ocupación máxima por aula, vocales duplicados, ratio estudiante-vocal</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-n" style="border-color:var(--amber);color:var(--amber);">4</div>
+          <div class="step-content">
+            <div class="step-title">DESPISTE — Reubicación urgente</div>
+            <div class="step-desc">Mueve al estudiante con todos sus exámenes en ventana de 1 hora</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-n" style="border-color:var(--pink);color:var(--pink);">5</div>
+          <div class="step-content">
+            <div class="step-title">MIGRAR_CENTRO + TR_MIGRAR_CENTRO</div>
+            <div class="step-desc">Al cambiar la sede de un centro, reasigna todos sus estudiantes automáticamente</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="col" style="justify-content:center;gap:clamp(10px,1.5vh,20px);">
+      <pre><span class="cm">-- Algoritmo de asignación (greedy)</span>
+<span class="kw">FUNCTION</span> F_PLAZAS(p_sede VARCHAR2)
+  <span class="kw">RETURN</span> NUMBER <span class="kw">AS</span>
+<span class="kw">BEGIN</span>
+  <span class="kw">RETURN</span> v_capacidad - v_asignados;
+<span class="kw">END</span>;</pre>
+      <pre><span class="cm">-- Trigger de migración de centro</span>
+<span class="kw">CREATE TRIGGER</span> TR_MIGRAR_CENTRO
+<span class="kw">AFTER UPDATE OF</span> Sede_Codigo <span class="kw">ON</span> CENTRO
+<span class="kw">FOR EACH ROW BEGIN</span>
+  <span class="fn">MIGRAR_CENTRO</span>(:NEW.Codigo,
+    :OLD.Sede_Codigo, :NEW.Sede_Codigo);
+<span class="kw">END</span>;</pre>
+      <pre><span class="cm">-- Ventana de reubicación urgente</span>
+<span class="kw">IF NOT</span> (v_hora <span class="kw">BETWEEN</span> SYSDATE
+    <span class="kw">AND</span> (SYSDATE + 1/24)) <span class="kw">THEN</span>
+  <span class="fn">RAISE_APPLICATION_ERROR</span>(...);
+<span class="kw">END IF</span>;</pre>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SLIDE 4: Seguridad ══ -->
+<div class="slide" data-slide="3">
+  <div class="prog" id="bar3"></div>
+  <div class="eyebrow">Arquitectura de seguridad</div>
+  <div class="title" style="font-size:clamp(28px,4vw,54px);">Seguridad <span class="ac-violet">multicapa</span></div>
+  <div class="body" style="flex-direction:column;gap:clamp(12px,1.8vh,22px);">
+    <div class="layer">
+      <div class="layer-icon" style="background:rgba(96,165,250,.1);color:var(--blue);">1</div>
+      <div style="flex:1;">
+        <div class="layer-title"><span class="ac-blue">Roles de acceso</span> — ROL_ESTUDIANTE · ROL_VOCAL · ROL_ACCESO</div>
+        <div class="layer-desc">Cada rol accede únicamente a sus vistas y procedimientos. Permisos mínimos por defecto.</div>
+      </div>
+      <div style="flex-shrink:0;"><pre style="margin:0;"><span class="kw">GRANT SELECT ON</span> V_MIS_DATOS
+  <span class="kw">TO</span> ROL_ESTUDIANTE;</pre></div>
+    </div>
+    <div class="layer">
+      <div class="layer-icon" style="background:rgba(167,139,250,.1);color:var(--violet);">2</div>
+      <div style="flex:1;">
+        <div class="layer-title"><span class="ac-violet">VPD — Virtual Private Database</span></div>
+        <div class="layer-desc">Política a nivel de fila: <code style="font-family:'DM Mono',monospace;font-size:.9em;color:var(--violet);">Usuario_BD = USER</code>. Cada estudiante ve únicamente su propia fila en ESTUDIANTE.</div>
+      </div>
+      <div style="flex-shrink:0;"><pre style="margin:0;"><span class="fn">DBMS_RLS.ADD_POLICY</span>(
+  object_name => <span class="str">'ESTUDIANTE'</span>,
+  policy_function => <span class="str">'FN_VPD'</span>
+);</pre></div>
+    </div>
+    <div class="layer">
+      <div class="layer-icon" style="background:rgba(251,191,36,.1);color:var(--amber);">3</div>
+      <div style="flex:1;">
+        <div class="layer-title"><span class="ac-amber">Usuarios dinámicos</span> — PK_SEGURIDAD_PAU</div>
+        <div class="layer-desc">Crea <code style="font-family:'DM Mono',monospace;font-size:.9em;color:var(--amber);">EST_&lt;DNI&gt;</code> y <code style="font-family:'DM Mono',monospace;font-size:.9em;color:var(--amber);">VOC_&lt;DNI&gt;</code> con contraseña aleatoria. Bloqueo tras 5 intentos · caducidad 30 días · validación DNI.</div>
+      </div>
+      <div style="flex-shrink:0;"><pre style="margin:0;">p_pass := <span class="fn">DBMS_RANDOM.STRING</span>(<span class="str">'X'</span>,10);
+<span class="kw">GRANT</span> ROL_ESTUDIANTE <span class="kw">TO</span> p_user;</pre></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SLIDE 5: Conclusiones ══ -->
+<div class="slide" data-slide="4">
+  <div class="prog" id="bar4"></div>
+  <div class="eyebrow">Resultado del proyecto</div>
+  <div class="title" style="font-size:clamp(28px,4vw,54px);">Sistema completo<br><span class="ac-teal">y funcional</span></div>
+  <div class="body">
+    <div class="col" style="justify-content:center;gap:clamp(14px,2vh,24px);">
+      <div class="card">
+        <div class="card-label" style="color:var(--blue);">Esquema</div>
+        <div class="card-value">10 tablas · 14 FKs</div>
+        <div class="card-desc">Tabla externa, vista materializada, tablespaces separados, índices especializados</div>
+      </div>
+      <div class="card">
+        <div class="card-label" style="color:var(--teal);">PL/SQL</div>
+        <div class="card-value">5 paquetes · 6 triggers</div>
+        <div class="card-desc">Asignación greedy, análisis de ocupación, reubicación urgente y migración de centro</div>
+      </div>
+      <div class="card">
+        <div class="card-label" style="color:var(--violet);">Seguridad</div>
+        <div class="card-value">3 capas de protección</div>
+        <div class="card-desc">Roles, VPD por fila, usuarios dinámicos, auditoría unificada y validación de DNI</div>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="col" style="justify-content:center;align-items:center;">
+      <div style="text-align:center;">
+        <div style="font-size:clamp(64px,10vw,120px);font-weight:800;line-height:1;color:var(--blue);">20</div>
+        <div style="font-size:clamp(16px,1.8vw,24px);color:var(--mid);margin-bottom:2vh;">tests funcionales superados</div>
+        <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:3vh;">
+          <span class="pill pill-blue">nemotron-3</span>
+          <span class="pill pill-violet">qwen3.6-plus</span>
+          <span class="pill pill-teal">deepseek-v4</span>
+        </div>
+        <div style="font-size:clamp(12px,1.2vw,16px);color:var(--dim);">Verificación multi-modelo · 100% requisitos · 2 bugs corregidos</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<!-- NAV -->
+<div class="nav">
+  <button id="prevBtn">←</button>
+  <div class="dots" id="dots">
+    <span class="dot active"></span>
+    <span class="dot"></span>
+    <span class="dot"></span>
+    <span class="dot"></span>
+    <span class="dot"></span>
+  </div>
+  <span class="counter" id="counter">1 / 5</span>
+  <button id="nextBtn">→</button>
+</div>
+
+<script>
+const slides=document.querySelectorAll('.slide'),dots=document.querySelectorAll('.dot'),counter=document.getElementById('counter');
+let cur=0,timerInt;
+function goTo(n){
+  slides[cur].classList.remove('active');dots[cur].classList.remove('active');
+  cur=(n+slides.length)%slides.length;
+  slides[cur].classList.add('active');dots[cur].classList.add('active');
+  counter.textContent=(cur+1)+' / '+slides.length;
+  resetTimer();
+}
+document.getElementById('nextBtn').onclick=()=>goTo(cur+1);
+document.getElementById('prevBtn').onclick=()=>goTo(cur-1);
+dots.forEach((d,i)=>d.addEventListener('click',()=>goTo(i)));
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();goTo(cur+1);}
+  if(e.key==='ArrowLeft'){e.preventDefault();goTo(cur-1);}
+});
+function resetTimer(){
+  clearInterval(timerInt);
+  const bar=document.getElementById('bar'+cur);
+  if(!bar)return;
+  bar.style.width='0%';
+  let w=0;
+  timerInt=setInterval(()=>{w+=.5;bar.style.width=Math.min(w,100)+'%';if(w>=100)clearInterval(timerInt);},180);
+}
+resetTimer();
+let tx=0;
+document.addEventListener('touchstart',e=>{tx=e.changedTouches[0].screenX;});
+document.addEventListener('touchend',e=>{const d=tx-e.changedTouches[0].screenX;if(Math.abs(d)>60)goTo(cur+(d>0?1:-1));});
+</script>
+</body>
+</html>
