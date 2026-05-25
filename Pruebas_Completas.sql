@@ -171,16 +171,27 @@ PROMPT ========================================
 DECLARE
   v_aula VARCHAR2(20);
   v_vocal VARCHAR2(20);
+  v_examen_fecha DATE;
+  v_estudiante VARCHAR2(20);
+  v_materia VARCHAR2(20);
 BEGIN
   SELECT Codigo INTO v_aula FROM AULA WHERE ROWNUM = 1;
   SELECT DNI INTO v_vocal FROM VOCAL WHERE ROWNUM = 1;
+  SELECT DNI INTO v_estudiante FROM ESTUDIANTE WHERE ROWNUM = 1;
+  SELECT Codigo INTO v_materia FROM MATERIA WHERE ROWNUM = 1;
+
+  -- Crear examen de prueba
+  v_examen_fecha := SYSDATE + 10;
+  INSERT INTO EXAMEN (FechayHora, Aula_Codigo, Vocal_DNI)
+  VALUES (v_examen_fecha, v_aula, v_vocal);
+  SAVEPOINT sp_check13;
 
   -- Probar CHK_EXAMEN_NUM_EST (Num_Estudiantes_Presentes >= 0)
   BEGIN
     INSERT INTO EXAMEN (FechayHora, Aula_Codigo, Vocal_DNI, Num_Estudiantes_Presentes)
-    VALUES (SYSDATE + 10, v_aula, v_vocal, -1);
+    VALUES (v_examen_fecha + 1/24, v_aula, v_vocal, -1);
     DBMS_OUTPUT.PUT_LINE('ERROR: Deberia haber fallado por Num_Estudiantes_Presentes negativo');
-    ROLLBACK;
+    ROLLBACK TO sp_check13;
   EXCEPTION
     WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE('OK: Num_Estudiantes_Presentes negativo rechazado');
   END;
@@ -188,13 +199,17 @@ BEGIN
   -- Probar CHK_ASISTENCIA_ASISTE_VALUES (Asiste IN (S,N))
   BEGIN
     INSERT INTO ASISTENCIA (Asiste, Entrega, Examen_FechayHora, Estudiante_DNI, Materia_Codigo)
-    VALUES ('X', 'S', SYSDATE + 10, (SELECT DNI FROM ESTUDIANTE WHERE ROWNUM = 1),
-            (SELECT Codigo FROM MATERIA WHERE ROWNUM = 1));
+    VALUES ('X', 'S', v_examen_fecha, v_estudiante, v_materia);
     DBMS_OUTPUT.PUT_LINE('ERROR: Deberia haber fallado por Asiste invalido');
-    ROLLBACK;
+    ROLLBACK TO sp_check13;
   EXCEPTION
     WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE('OK: Asiste invalido rechazado');
   END;
+
+  -- Limpiar
+  ROLLBACK TO sp_check13;
+  DELETE FROM EXAMEN WHERE FechayHora = v_examen_fecha;
+  COMMIT;
 END;
 /
 

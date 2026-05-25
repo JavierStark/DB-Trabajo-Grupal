@@ -529,8 +529,9 @@ FROM SEDE s
 JOIN VOCAL v ON s.Vocal_Responsable_DNI = v.DNI
 WHERE v.Usuario_BD = USER;
 
--- Damos permisos totales sobre esta vista al rol vocal
-GRANT SELECT, INSERT, UPDATE, DELETE ON V_MI_SEDE_GESTION TO ROL_VOCAL;
+-- Damos permisos de SELECT sobre la vista y permisos de gestion directa sobre SEDE
+GRANT SELECT ON V_MI_SEDE_GESTION TO ROL_VOCAL;
+GRANT SELECT, UPDATE (Nombre, Tipo) ON SEDE TO ROL_VOCAL;
 
 -- Vista global de asignación para el Servicio de Acceso
 CREATE OR REPLACE VIEW V_ASIGNACION_GLOBAL AS
@@ -586,6 +587,9 @@ CREATE OR REPLACE FUNCTION FN_ESTUDIANTE_VPD(
   p_schema VARCHAR2, p_object VARCHAR2
 ) RETURN VARCHAR2 AS
 BEGIN
+  IF SYS_CONTEXT('USERENV', 'SESSION_USER') = 'PAU' THEN
+    RETURN NULL;
+  END IF;
   RETURN 'Usuario_BD = USER';
 END;
 /

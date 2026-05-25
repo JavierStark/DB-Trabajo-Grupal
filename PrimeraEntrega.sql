@@ -35,6 +35,8 @@ GRANT READ, WRITE ON DIRECTORY directorio_ext TO PAU;
 -- Permisos adicionales
 GRANT EXECUTE ON SYS.DBMS_RANDOM TO PAU;
 GRANT EXECUTE ON SYS.DBMS_RLS TO PAU;
+-- Permiso para crear usuarios (PK_SEGURIDAD_PAU)
+GRANT CREATE USER TO PAU;
 
 
 -- ============================================================================
