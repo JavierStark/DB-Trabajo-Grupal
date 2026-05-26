@@ -16,7 +16,11 @@
 -- PARTE 1: PRIMERA ENTREGA - ESQUEMA Y DATOS
 -- ============================================================================
 
--- Creamos tablespaces (si no existen)
+-- ============================================================================
+-- CONECTAR COMO SYS
+-- ============================================================================
+
+-- Creamos tablespaces
 CREATE TABLESPACE TS_PAU 
 DATAFILE 'ts_pau.dbf' SIZE 100M 
 AUTOEXTEND ON;
@@ -47,7 +51,6 @@ GRANT CREATE USER TO PAU;
 -- ============================================================================
 -- CONECTAR COMO PAU a partir de aqui
 -- ============================================================================
-ALTER SESSION SET CURRENT_SCHEMA = PAU;
 
 -- Drop objetos existentes en orden correcto
 BEGIN
@@ -576,9 +579,7 @@ COMMIT;
 -- Matricular estudiantes
 EXEC PR_MATRICULA_ESTUDIANTES;
 
--- Vista materializada y sinonimo (conectar como PAU para evitar restricciones de SYS)
--- CAMBIAR a conexion como usuario PAU en SQL Developer antes de continuar
--- (ALTER SESSION SET CURRENT_SCHEMA no es suficiente; debe ser conexion real como PAU)
+-- Vista materializada y sinonimo para estudiantes
 
 CREATE MATERIALIZED VIEW PAU.VM_ESTUDIANTES
 BUILD IMMEDIATE
@@ -591,10 +592,6 @@ FROM PAU.ESTUDIANTE e
 JOIN PAU.CENTRO c ON e.Centro_Codigo = c.Codigo;
 
 CREATE PUBLIC SYNONYM S_ESTUDIANTES FOR PAU.VM_ESTUDIANTES;
-
--- CAMBIAR a conexion como SYS en SQL Developer antes de continuar
-ALTER SESSION SET CURRENT_SCHEMA = PAU;
-
 
 -- ============================================================================
 -- PAQUETE PK_ASIGNA
