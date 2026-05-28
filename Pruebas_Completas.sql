@@ -278,9 +278,37 @@ PROMPT ========================================
 PROMPT PRUEBA 18: VERIFICAR VPD Y AUDITORIA
 PROMPT ========================================
 SELECT policy_name, object_name FROM user_policies;
-SELECT policy_name, audit_option 
-FROM audit_unified_policies 
-WHERE policy_name = 'AUDIT_ASISTENCIA_UPDATES';
+PROMPT ========================================
+PROMPT PRUEBA 18: VERIFICAR VPD Y AUDITORIA
+PROMPT ========================================
+SELECT policy_name, object_name FROM user_policies;
+
+DECLARE
+  v_count NUMBER := 0;
+  e_view_not_accessible EXCEPTION;
+  e_insufficient_privs EXCEPTION;
+  PRAGMA EXCEPTION_INIT(e_view_not_accessible, -942);
+  PRAGMA EXCEPTION_INIT(e_insufficient_privs, -1031);
+BEGIN
+  SELECT COUNT(*)
+  INTO v_count
+  FROM audit_unified_policies
+  WHERE policy_name = 'AUDIT_ASISTENCIA_UPDATES';
+  
+  IF v_count > 0 THEN
+    DBMS_OUTPUT.PUT_LINE('Politica de auditoria AUDIT_ASISTENCIA_UPDATES encontrada');
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('Politica de auditoria AUDIT_ASISTENCIA_UPDATES no encontrada');
+  END IF;
+EXCEPTION
+  WHEN e_view_not_accessible OR e_insufficient_privs THEN
+    DBMS_OUTPUT.PUT_LINE(
+      'No se puede consultar AUDIT_UNIFIED_POLICIES con el usuario actual. ' ||
+      'Ejecute esta comprobacion con un usuario con privilegios de diccionario ' ||
+      'o conceda permisos de lectura sobre las politicas de auditoria.'
+    );
+END;
+/
 
 PROMPT ========================================
 PROMPT PRUEBA 19: PROBAR MIGRAR_CENTRO (si hay datos)
