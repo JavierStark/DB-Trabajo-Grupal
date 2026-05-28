@@ -333,7 +333,80 @@ END;
 /
 
 PROMPT ========================================
-PROMPT PRUEBA 23: RESUMEN FINAL
+PROMPT PRUEBA 23: COMPROBACION INTEGRAL DE VISTAS (VPD Y OCUPACION)
+PROMPT ========================================
+
+-- 1. Limpiamos y generamos entorno aislado para esta prueba
+EXEC PR_BORRA_AULAS; 
+EXEC PR_RELLENA_AULAS(5, 30);
+
+-- 2. Nos asignamos como un vocal y estudiante ya existente de forma dinamica
+UPDATE ESTUDIANTE SET Usuario_BD = 'PAU' WHERE DNI = (SELECT DNI FROM ESTUDIANTE WHERE ROWNUM = 1); 
+UPDATE VOCAL SET Usuario_BD = 'PAU' WHERE DNI = (SELECT DNI FROM VOCAL WHERE ROWNUM = 1);
+
+-- 3. Cambiamos al vocal elegido a responsable de la Sede 1
+UPDATE SEDE SET Vocal_Responsable_DNI = (SELECT DNI FROM VOCAL WHERE Usuario_BD = 'PAU') WHERE Codigo = '1';
+
+-- 4. Creacion de Examen base y Asistencia
+INSERT INTO EXAMEN (FechayHora, Aula_Codigo, Vocal_DNI) 
+VALUES (TO_DATE('20/05/2026 10:00', 'DD/MM/YYYY HH24:MI'), '1_1', (SELECT DNI FROM VOCAL WHERE Usuario_BD = 'PAU'));
+
+INSERT INTO ASISTENCIA (Estudiante_DNI, Examen_FechayHora, Materia_Codigo, Sede_Codigo, Aula_Codigo, Asiste, Entrega)
+VALUES (
+    (SELECT DNI FROM ESTUDIANTE WHERE Usuario_BD = 'PAU'), 
+    TO_DATE('20/05/2026 10:00', 'DD/MM/YYYY HH24:MI'), 
+    (SELECT Codigo FROM MATERIA WHERE ROWNUM = 1), 
+    '1', '1_1', 'S', 'S'
+);
+
+-- 5. Insercion de Vigilante extra dinamico
+INSERT INTO EXAMEN_VOCAL_Vigilantes (Examen_FechayHora, Vocal_DNI)
+SELECT TO_DATE('20/05/2026 10:00', 'DD/MM/YYYY HH24:MI'), DNI 
+FROM VOCAL 
+WHERE Usuario_BD IS NULL OR Usuario_BD != 'PAU' 
+FETCH FIRST 1 ROWS ONLY;
+
+PROMPT --- VISTAS GLOBALES Y DE OCUPACION ---
+SELECT 'V_OCUPACION_ASIGNADA' as Vista, v.* FROM V_OCUPACION_ASIGNADA v;
+SELECT 'V_OCUPACION' as Vista, v.* FROM V_OCUPACION v;
+SELECT 'V_ASIGNACION_GLOBAL' as Vista, v.* FROM V_ASIGNACION_GLOBAL v;
+SELECT 'V_VIGILANTES' as Vista, v.* FROM V_VIGILANTES v;
+
+PROMPT --- VISTAS POR PERFIL (SEGURIDAD VPD / USER = PAU) ---
+SELECT 'V_MI_VIGILANCIA' as Vista, v.* FROM V_MI_VIGILANCIA v;
+SELECT 'V_MI_SEDE_GESTION' as Vista, v.* FROM V_MI_SEDE_GESTION v;
+SELECT 'V_MIS_DATOS' as Vista, v.* FROM V_MIS_DATOS v;
+SELECT 'V_MI_ASIGNACION' as Vista, v.* FROM V_MI_ASIGNACION v;
+
+-- Limpiamos los datos insertados aislando la prueba
+ROLLBACK;
+EXEC PR_BORRA_AULAS;
+EXEC PR_RELLENA_AULAS(5, 30); -- Dejamos las aulas listas por si acaso
+
+PROMPT ========================================
+PROMPT PRUEBA 24: COMPROBACION DE PRIVILEGIOS DE ROLES
+PROMPT ========================================
+
+PROMPT --- 1. Privilegios a nivel de Columna (SEDE, EXAMEN y ASISTENCIA) ---
+SELECT grantee, table_name, column_name, privilege 
+FROM dba_col_privs 
+WHERE grantee IN ('ROL_ESTUDIANTE', 'ROL_VOCAL', 'ROL_ACCESO')
+ORDER BY grantee, table_name, column_name;
+
+PROMPT --- 2. Privilegios a nivel de Tabla, Vista o Paquete ---
+SELECT grantee, table_name, privilege 
+FROM dba_tab_privs 
+WHERE grantee IN ('ROL_ESTUDIANTE', 'ROL_VOCAL', 'ROL_ACCESO')
+ORDER BY grantee, table_name, privilege;
+
+PROMPT --- 3. Privilegios de Sistema (CREATE SESSION) ---
+SELECT grantee, privilege 
+FROM dba_sys_privs 
+WHERE grantee IN ('ROL_ESTUDIANTE', 'ROL_VOCAL', 'ROL_ACCESO')
+ORDER BY grantee;
+
+PROMPT ========================================
+PROMPT PRUEBA 26: RESUMEN FINAL
 PROMPT ========================================
 SELECT 'PRUEBAS COMPLETADAS - ' || TO_CHAR(SYSDATE, 'DD/MM/YYYY HH24:MI') AS resultado FROM DUAL;
 
