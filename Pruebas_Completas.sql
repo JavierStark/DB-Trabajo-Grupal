@@ -92,6 +92,11 @@ END;
 /
 
 PROMPT ========================================
+PROMPT PRUEBA 7.5: COMPROBAR TRIGGER AUDITORIA (LOG_ASISTENCIA)
+PROMPT ========================================
+SELECT * FROM LOG_ASISTENCIA;
+
+PROMPT ========================================
 PROMPT PRUEBA 8: PROBAR VISTAS DE OCUPACION
 PROMPT ========================================
 SELECT * FROM V_OCUPACION_ASIGNADA;
@@ -105,6 +110,10 @@ DECLARE
   v_result NUMBER;
   v_ok BOOLEAN;
   v_aula VARCHAR2(20);
+
+  SELECT DNI INTO v_vocal FROM VOCAL WHERE ROWNUM = 1;
+  v_ok := PK_OCUPACION.VOCAL_DUPLICADO(v_vocal);
+  DBMS_OUTPUT.PUT_LINE('VOCAL_DUPLICADO (1 DNI): ' || CASE WHEN v_ok THEN 'TRUE' ELSE 'FALSE' END);
 BEGIN
   SELECT Codigo INTO v_aula FROM AULA WHERE ROWNUM = 1;
   v_result := PK_OCUPACION.OCUPACION_MAXIMA('1', v_aula);
@@ -276,7 +285,55 @@ END;
 /
 
 PROMPT ========================================
-PROMPT PRUEBA 20: RESUMEN FINAL
+PROMPT PRUEBA 20: PROBAR PROCEDIMIENTO DESPISTE
+PROMPT ========================================
+DECLARE
+  v_est_dni VARCHAR2(20);
+  v_fecha DATE;
+  v_aula_nueva VARCHAR2(20);
+  v_sede_nueva VARCHAR2(20);
+BEGIN
+  -- Pillamos un estudiante con asistencia ya creada (de la Prueba 7)
+  SELECT Estudiante_DNI, Examen_FechayHora INTO v_est_dni, v_fecha 
+  FROM ASISTENCIA WHERE ROWNUM = 1;
+  
+  -- Pillamos una sede y aula distintas
+  SELECT Codigo INTO v_sede_nueva FROM SEDE WHERE ROWNUM = 1;
+  SELECT Codigo INTO v_aula_nueva FROM AULA WHERE Sede_Codigo = v_sede_nueva AND ROWNUM = 1;
+
+  DESPISTE(v_est_dni, v_fecha, v_aula_nueva, v_sede_nueva);
+  DBMS_OUTPUT.PUT_LINE('DESPISTE ejecutado correctamente');
+EXCEPTION
+  WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE('Error esperado en DESPISTE (ventanas de tiempo): ' || SQLERRM);
+END;
+/
+
+PROMPT ========================================
+PROMPT PRUEBA 21: PROBAR TRIGGER TR_CENTROS (Secuencia)
+PROMPT ========================================
+INSERT INTO CENTRO (Nombre, Poblacion) VALUES ('Instituto Test Trigger', 'Malaga');
+SELECT Codigo, Nombre FROM CENTRO WHERE Nombre = 'Instituto Test Trigger';
+ROLLBACK;
+
+PROMPT ========================================
+PROMPT PRUEBA 22: PROBAR TRIGGER TR_MIGRAR_CENTRO
+PROMPT ========================================
+DECLARE
+  v_centro VARCHAR2(20);
+  v_sede_nueva VARCHAR2(20);
+BEGIN
+  SELECT Codigo INTO v_centro FROM CENTRO WHERE ROWNUM = 1;
+  SELECT Codigo INTO v_sede_nueva FROM SEDE WHERE ROWNUM = 1;
+  
+  -- Este update es el que dispara TR_MIGRAR_CENTRO
+  UPDATE CENTRO SET Sede_Codigo = v_sede_nueva WHERE Codigo = v_centro;
+  DBMS_OUTPUT.PUT_LINE('Update en CENTRO ejecutado (Trigger disparado por detras)');
+  ROLLBACK;
+END;
+/
+
+PROMPT ========================================
+PROMPT PRUEBA 23: RESUMEN FINAL
 PROMPT ========================================
 SELECT 'PRUEBAS COMPLETADAS - ' || TO_CHAR(SYSDATE, 'DD/MM/YYYY HH24:MI') AS resultado FROM DUAL;
 
