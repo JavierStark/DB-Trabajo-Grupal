@@ -278,10 +278,6 @@ PROMPT ========================================
 PROMPT PRUEBA 18: VERIFICAR VPD Y AUDITORIA
 PROMPT ========================================
 SELECT policy_name, object_name FROM user_policies;
-PROMPT ========================================
-PROMPT PRUEBA 18: VERIFICAR VPD Y AUDITORIA
-PROMPT ========================================
-SELECT policy_name, object_name FROM user_policies;
 
 DECLARE
   v_count NUMBER := 0;
