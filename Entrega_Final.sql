@@ -1273,7 +1273,7 @@ BEGIN
 END;
 /
 
--- Auditoría unificada (Oracle 23ai): registra cada UPDATE sobre ASISTENCIA
+-- Auditoría unificada: registra cada UPDATE sobre ASISTENCIA
 -- Las trazas quedan en UNIFIED_AUDIT_TRAIL (quién, cuándo, valores)
 CREATE AUDIT POLICY audit_asistencia_updates
   ACTIONS UPDATE ON PAU.ASISTENCIA;
