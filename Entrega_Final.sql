@@ -20,32 +20,33 @@
 -- CONECTAR COMO SYS
 -- ============================================================================
 
--- Creamos tablespaces
+-- Tablespace para datos del esquema PAU (con autoextensión para crecer bajo demanda)
 CREATE TABLESPACE TS_PAU 
 DATAFILE 'ts_pau.dbf' SIZE 100M 
 AUTOEXTEND ON;
 
+-- Tablespace separado para índices (mejora rendimiento E/S y administración)
 CREATE TABLESPACE TS_INDICES 
 DATAFILE 'ts_indices.dbf' SIZE 50M;
 
--- Crear usuario PAU (si no existe)
+-- Crear usuario PAU con tablespace por defecto y cuota ilimitada en ambos tablespaces
 CREATE USER PAU IDENTIFIED BY pau DEFAULT TABLESPACE TS_PAU 
   QUOTA UNLIMITED ON TS_PAU QUOTA UNLIMITED ON TS_INDICES;
 
--- En lugar de GRANT DBA, damos permisos especificos
+-- Se evita GRANT DBA por seguridad; se conceden privilegios mínimos necesarios
 GRANT CONNECT, RESOURCE TO PAU;
 GRANT CREATE VIEW, CREATE MATERIALIZED VIEW, CREATE PROCEDURE, 
       CREATE SEQUENCE, CREATE TRIGGER, CREATE SYNONYM, CREATE PUBLIC SYNONYM TO PAU;
 GRANT AUDIT_VIEWER TO PAU;
 
--- Directorio para tabla externa
+-- Directorio Oracle donde se ubicará el CSV de estudiantes para la tabla externa
 CREATE OR REPLACE DIRECTORY directorio_ext AS 'C:\app\alumnos\admin\orcl\dpdump';
 GRANT READ, WRITE ON DIRECTORY directorio_ext TO PAU;
 
--- Permisos adicionales
+-- DBMS_RANDOM para generar contraseñas aleatorias; DBMS_RLS para VPD (seguridad fila-nivel)
 GRANT EXECUTE ON SYS.DBMS_RANDOM TO PAU;
 GRANT EXECUTE ON SYS.DBMS_RLS TO PAU;
--- Permiso para crear usuarios (PK_SEGURIDAD_PAU)
+-- Permiso para crear usuarios de BD dinámicamente (usado en PK_SEGURIDAD_PAU)
 GRANT CREATE USER TO PAU;
 
 
@@ -53,7 +54,11 @@ GRANT CREATE USER TO PAU;
 -- CONECTAR COMO PAU a partir de aqui
 -- ============================================================================
 
--- Drop objetos existentes en orden correcto
+-- Limpieza idempotente: borra objetos existentes en orden inverso a su creación
+-- para poder re-ejecutar el script sin errores. Cada bloque captura excepciones
+-- y las ignora (WHEN OTHERS THEN NULL) por si el objeto no existe aún.
+
+-- Borra vistas materializadas del esquema PAU
 BEGIN
   FOR rec IN (SELECT mview_name FROM all_mviews WHERE owner = 'PAU') LOOP
     BEGIN
@@ -64,6 +69,7 @@ BEGIN
 END;
 /
 
+-- Borra sinónimos públicos que referencien objetos de PAU
 BEGIN
   FOR rec IN (SELECT synonym_name FROM dba_synonyms WHERE owner = 'PUBLIC' AND table_owner = 'PAU') LOOP
     BEGIN
@@ -74,12 +80,14 @@ BEGIN
 END;
 /
 
+-- Borra sinónimo público específico (cobertura extra por si el bucle anterior no lo encuentra)
 BEGIN
   EXECUTE IMMEDIATE 'DROP PUBLIC SYNONYM S_ESTUDIANTES';
 EXCEPTION WHEN OTHERS THEN NULL;
 END;
 /
 
+-- Borra procedimientos, paquetes, funciones, triggers y vistas de PAU
 BEGIN
   FOR rec IN (SELECT object_name, object_type FROM dba_objects 
               WHERE owner = 'PAU' AND object_type IN ('PROCEDURE','PACKAGE','FUNCTION','TRIGGER','VIEW')) LOOP
@@ -91,6 +99,7 @@ BEGIN
 END;
 /
 
+-- Borra tablas con CASCADE CONSTRAINTS (elimina dependencias) y PURGE (salta papelera)
 BEGIN
    FOR rec IN (SELECT table_name FROM dba_tables WHERE owner = 'PAU' ORDER BY table_name DESC) LOOP
       BEGIN
@@ -101,6 +110,7 @@ BEGIN
 END;
 /
 
+-- Borra secuencias del esquema PAU
 BEGIN
    FOR rec IN (SELECT sequence_name FROM dba_sequences WHERE sequence_owner = 'PAU') LOOP
       BEGIN
@@ -111,7 +121,7 @@ BEGIN
 END;
 /
 
--- Borrado de políticas de auditoría del pasado
+-- Desactiva y borra política de auditoría previa (para poder redefinirla después)
 BEGIN
   EXECUTE IMMEDIATE 'NOAUDIT POLICY audit_asistencia_updates';
 EXCEPTION WHEN OTHERS THEN NULL;
@@ -128,21 +138,22 @@ END;
 -- CREACION DE TABLAS
 -- ============================================================================
 
+-- Vocales: miembros del tribunal examinador (profesores que corrigen/vigilan)
 CREATE TABLE VOCAL 
     ( 
      DNI            VARCHAR2 (20)  NOT NULL , 
      Nombre         VARCHAR2 (50)  NOT NULL , 
      Apellidos      VARCHAR2 (100)  NOT NULL , 
-     Tipo           VARCHAR2 (100) , 
-     Cargo          VARCHAR2 (100) , 
-     Materia_Codigo VARCHAR2 (20),
-     Usuario_BD     VARCHAR2 (30)
+     Tipo           VARCHAR2 (100) ,          -- Ej: 'INSTITUTO', 'UNIVERSIDAD'
+     Cargo          VARCHAR2 (100) ,          -- Ej: 'Presidente', 'Secretario'
+     Materia_Codigo VARCHAR2 (20),            -- Materia que examina
+     Usuario_BD     VARCHAR2 (30)             -- Usuario Oracle creado dinámicamente
     ) 
 ;
 ALTER TABLE VOCAL ADD CONSTRAINT VOCAL_PK PRIMARY KEY ( DNI ) 
   USING INDEX TABLESPACE TS_INDICES ;
 
-
+-- Materias evaluables en la PAU
 CREATE TABLE MATERIA 
     ( 
      Codigo VARCHAR2 (20)  NOT NULL , 
@@ -152,12 +163,12 @@ CREATE TABLE MATERIA
 ALTER TABLE MATERIA ADD CONSTRAINT MATERIA_PK PRIMARY KEY ( Codigo ) 
   USING INDEX TABLESPACE TS_INDICES ;
 
-
+-- Sedes donde se realizan los exámenes, con referencias a vocal responsable y secretario
 CREATE TABLE SEDE 
     ( 
      Codigo                 VARCHAR2 (20)  NOT NULL , 
      Nombre                 VARCHAR2 (100)  NOT NULL , 
-     Tipo                   VARCHAR2 (100) , 
+     Tipo                   VARCHAR2 (100) ,       -- 'INSTITUTO' o 'UNIVERSIDAD'
      Vocal_Secretario_DNI   VARCHAR2 (20)  NOT NULL , 
      Vocal_Responsable_DNI  VARCHAR2 (20)  NOT NULL 
     ) 
@@ -165,30 +176,31 @@ CREATE TABLE SEDE
 ALTER TABLE SEDE ADD CONSTRAINT SEDE_PK PRIMARY KEY ( Codigo ) 
   USING INDEX TABLESPACE TS_INDICES ;
 
+-- Unívocos: un vocal no puede ser responsable/secretario de más de una sede
 CREATE UNIQUE INDEX SEDE_UQ_VOCAL_RESP ON SEDE 
     ( Vocal_Responsable_DNI ASC ) TABLESPACE TS_INDICES;
 CREATE UNIQUE INDEX SEDE_UQ_VOCAL_SEC ON SEDE 
     ( Vocal_Secretario_DNI ASC ) TABLESPACE TS_INDICES;
 
-
+-- Centros educativos (institutos) que se presentan a la PAU
 CREATE TABLE CENTRO 
     ( 
      Codigo      VARCHAR2 (20)  NOT NULL , 
      Nombre      VARCHAR2 (100)  NOT NULL , 
      Direccion   VARCHAR2 (200) , 
      Poblacion   VARCHAR2 (200) , 
-     Sede_Codigo VARCHAR2 (20) 
+     Sede_Codigo VARCHAR2 (20)        -- Sede a la que está asignado (se rellena después)
     ) 
 ;
 ALTER TABLE CENTRO ADD CONSTRAINT CENTRO_PK PRIMARY KEY ( Codigo ) 
   USING INDEX TABLESPACE TS_INDICES ;
 
-
+-- Aulas dentro de cada sede, con capacidad total y capacidad reducida para examen
 CREATE TABLE AULA 
     ( 
      Codigo           VARCHAR2 (20)  NOT NULL , 
-     Capacidad        NUMBER  NOT NULL , 
-     Capacidad_Examen NUMBER  NOT NULL , 
+     Capacidad        NUMBER  NOT NULL ,       -- Aforo total del aula
+     Capacidad_Examen NUMBER  NOT NULL ,       -- Aforo reducido (distancia entre mesas)
      Descripcion      VARCHAR2 (500) , 
      Sede_Codigo      VARCHAR2 (20)  NOT NULL
     ) 
@@ -196,7 +208,7 @@ CREATE TABLE AULA
 ALTER TABLE AULA ADD CONSTRAINT AULA_PK PRIMARY KEY ( Codigo ) 
   USING INDEX TABLESPACE TS_INDICES ;
 
-
+-- Estudiantes: datos personales más referencia al centro y usuario BD para login
 CREATE TABLE ESTUDIANTE 
     ( 
      DNI           VARCHAR2 (20)  NOT NULL , 
@@ -205,36 +217,36 @@ CREATE TABLE ESTUDIANTE
      Telefono      VARCHAR2 (50)  NOT NULL , 
      Correo        VARCHAR2 (150) , 
      Centro_Codigo VARCHAR2 (20)  NOT NULL,
-     Usuario_BD    VARCHAR2 (30)
+     Usuario_BD    VARCHAR2 (30)          -- Usuario Oracle generado automáticamente
     ) 
 ;
 ALTER TABLE ESTUDIANTE ADD CONSTRAINT ESTUDIANTE_PK PRIMARY KEY ( DNI ) 
   USING INDEX TABLESPACE TS_INDICES ;
 
-
+-- ANE: Alumnos con Necesidades Especiales (adaptaciones de examen)
 CREATE TABLE ANE 
     ( 
      DNI        VARCHAR2 (20)  NOT NULL , 
-     Descabezar CHAR (1) , 
-     AulaAparte CHAR (1) 
+     Descabezar CHAR (1) ,           -- 'S' si necesita examen separado
+     AulaAparte CHAR (1)             -- 'S' si necesita aula individual
     ) 
 ;
 ALTER TABLE ANE ADD CONSTRAINT ANE_PK PRIMARY KEY ( DNI ) 
   USING INDEX TABLESPACE TS_INDICES ;
 
-
+-- Examen: sesión de examen en una fecha/hora concreta, en un aula, con un vocal principal
 CREATE TABLE EXAMEN 
     ( 
      FechayHora   DATE  NOT NULL , 
      Aula_Codigo  VARCHAR2 (20)  NOT NULL , 
-     Vocal_DNI    VARCHAR2 (20)  NOT NULL,
-     Num_Estudiantes_Presentes NUMBER
+     Vocal_DNI    VARCHAR2 (20)  NOT NULL,       -- Vocal principal responsable
+     Num_Estudiantes_Presentes NUMBER             -- Contador actualizado por el vocal
     ) 
 ;
 ALTER TABLE EXAMEN ADD CONSTRAINT EXAMEN_PK PRIMARY KEY ( FechayHora ) 
   USING INDEX TABLESPACE TS_INDICES ;
 
-
+-- Relación N:M entre Examen y Materia (un examen puede tener varias materias)
 CREATE TABLE EXAMEN_MATERIA 
     ( 
      Examen_FechayHora DATE  NOT NULL , 
@@ -244,7 +256,7 @@ CREATE TABLE EXAMEN_MATERIA
 ALTER TABLE EXAMEN_MATERIA ADD CONSTRAINT EXAMEN_MATERIA_PK 
   PRIMARY KEY ( Examen_FechayHora, Materia_Codigo ) USING INDEX TABLESPACE TS_INDICES ;
 
-
+-- Vocales vigilantes adicionales asignados a un examen (N:M entre Examen y Vocal)
 CREATE TABLE EXAMEN_VOCAL_Vigilantes 
     ( 
      Examen_FechayHora DATE  NOT NULL , 
@@ -254,7 +266,7 @@ CREATE TABLE EXAMEN_VOCAL_Vigilantes
 ALTER TABLE EXAMEN_VOCAL_Vigilantes ADD CONSTRAINT EXAMEN_VOCAL_VIGILANTES_PK 
   PRIMARY KEY ( Examen_FechayHora, Vocal_DNI ) USING INDEX TABLESPACE TS_INDICES ;
 
-
+-- Matrícula: qué materias cursa cada estudiante (N:M)
 CREATE TABLE ESTUDIANTE_MATERIA 
     ( 
      Estudiante_DNI VARCHAR2 (20)  NOT NULL , 
@@ -264,7 +276,8 @@ CREATE TABLE ESTUDIANTE_MATERIA
 ALTER TABLE ESTUDIANTE_MATERIA ADD CONSTRAINT ESTUDIANTE_MATERIA_PK 
   PRIMARY KEY ( Estudiante_DNI, Materia_Codigo ) USING INDEX TABLESPACE TS_INDICES ;
 
-
+-- Asistencia: registro de si un estudiante asistió (Asiste='S'/'N') y entregó (Entrega='S'/'N')
+-- a un examen concreto de una materia. Aula_Codigo y Sede_Codigo permiten reubicaciones.
 CREATE TABLE ASISTENCIA 
     ( 
      Asiste            CHAR (1)  NOT NULL , 
@@ -272,16 +285,16 @@ CREATE TABLE ASISTENCIA
      Examen_FechayHora DATE  NOT NULL , 
      Estudiante_DNI    VARCHAR2 (20)  NOT NULL , 
      Materia_Codigo    VARCHAR2 (20)  NOT NULL,
-     Aula_Codigo       VARCHAR2 (20),
-     Sede_Codigo       VARCHAR2 (20)
+     Aula_Codigo       VARCHAR2 (20),             -- Se actualiza con DESPISTE/MIGRAR
+     Sede_Codigo       VARCHAR2 (20)              -- Se actualiza con DESPISTE/MIGRAR
     ) 
 ;
 ALTER TABLE ASISTENCIA ADD CONSTRAINT ASISTENCIA_PK 
   PRIMARY KEY ( Examen_FechayHora, Estudiante_DNI, Materia_Codigo ) 
   USING INDEX TABLESPACE TS_INDICES ;
 
-
--- Tabla de auditoria (punto extra)
+-- Tabla de auditoría: registra quién, cuándo y qué acción se hizo sobre ASISTENCIA
+-- Poblada automáticamente por el trigger TR_AUDIT_ASISTENCIA
 CREATE TABLE LOG_ASISTENCIA (
     Usuario_Modifica VARCHAR2(50),
     Fecha_Cambio     DATE,
@@ -292,7 +305,7 @@ CREATE TABLE LOG_ASISTENCIA (
 
 
 -- ============================================================================
--- FOREIGN KEYS
+-- FOREIGN KEYS: integridad referencial entre tablas
 -- ============================================================================
 
 ALTER TABLE ANE ADD CONSTRAINT ANE_ESTUDIANTE_FK 
@@ -350,6 +363,7 @@ ALTER TABLE VOCAL ADD CONSTRAINT Vocal_Materia_FK
   FOREIGN KEY ( Materia_Codigo ) REFERENCES MATERIA ( Codigo ) ;
 
 
+
 -- ============================================================================
 -- IMPORTACION DE DATOS: VOCAL, MATERIA, SEDE
 -- ============================================================================
@@ -364,6 +378,8 @@ ALTER TABLE VOCAL ADD CONSTRAINT Vocal_Materia_FK
 -- TABLA EXTERNA Y VISTA DE ESTUDIANTES
 -- ============================================================================
 
+-- Tabla externa que lee el CSV sin importar los datos físicamente.
+-- Oracle Loader parsea cada línea: campos separados por ';', opcionalmente entrecomillados.
 CREATE TABLE estudiantes_ext (
     centro          VARCHAR2(100),
     nombre          VARCHAR2(100),
@@ -371,7 +387,7 @@ CREATE TABLE estudiantes_ext (
     apellido2       VARCHAR2(100),
     dni             VARCHAR2(20),
     telefono        VARCHAR2(50),
-    detalle_materias VARCHAR2(4000)
+    detalle_materias VARCHAR2(4000)     -- Lista de materias separadas por comas
 )
 ORGANIZATION EXTERNAL (
     TYPE ORACLE_LOADER
@@ -387,6 +403,8 @@ ORGANIZATION EXTERNAL (
     LOCATION ('datos-estudiantes-pau.csv')
 );
 
+-- Vista que transforma los datos del CSV: genera apellidos concatenados y
+-- correo electrónico con formato inicial+primerApellido+3digitosDNI@uncorreo.es
 CREATE OR REPLACE VIEW v_estudiantes AS
 SELECT dni, nombre, apellido1 ||' '||apellido2 apellidos,
  telefono,
@@ -400,6 +418,9 @@ WHERE dni IS NOT NULL;
 -- PROCEDIMIENTOS PRIMERA ENTREGA
 -- ============================================================================
 
+-- Dado un DNI y una cadena "Materia1, Materia2, ...", parsea y asigna cada
+-- materia al estudiante en ESTUDIANTE_MATERIA. Ignora materias no encontradas
+-- o ya matriculadas (NO_DATA_FOUND, DUP_VAL_ON_INDEX).
 CREATE OR REPLACE PROCEDURE PR_INSERTA_MATERIAS(
   PESTDNI IN VARCHAR2,
   PDETALLE_MATERIAS IN VARCHAR2
@@ -411,25 +432,26 @@ CREATE OR REPLACE PROCEDURE PR_INSERTA_MATERIAS(
 BEGIN
   v_resto := PDETALLE_MATERIAS;
   LOOP
-    v_pos := INSTR(v_resto, ',');
+    v_pos := INSTR(v_resto, ',');         -- Busca separador de materias
     IF v_pos > 0 THEN
       v_materia := TRIM(SUBSTR(v_resto, 1, v_pos - 1));
       v_resto   := TRIM(SUBSTR(v_resto, v_pos + 1));
     ELSE
-      v_materia := TRIM(v_resto);
+      v_materia := TRIM(v_resto);          -- Última materia (sin coma)
       v_resto   := NULL;
     END IF;
 
     BEGIN
+      -- Busca el código de la materia por nombre (case-insensitive)
       SELECT Codigo INTO v_cod
       FROM MATERIA
       WHERE UPPER(Nombre) = UPPER(v_materia);
-
+      -- Inserta la relación estudiante-materia
       INSERT INTO ESTUDIANTE_MATERIA(Estudiante_DNI, Materia_Codigo)
       VALUES(PESTDNI, v_cod);
     EXCEPTION
-      WHEN NO_DATA_FOUND THEN NULL;
-      WHEN DUP_VAL_ON_INDEX THEN NULL;
+      WHEN NO_DATA_FOUND THEN NULL;       -- Materia no existe en BD: ignorar
+      WHEN DUP_VAL_ON_INDEX THEN NULL;    -- Ya matriculado: ignorar
     END;
 
     EXIT WHEN v_resto IS NULL OR v_resto = '';
@@ -438,6 +460,8 @@ BEGIN
 END PR_INSERTA_MATERIAS;
 /
 
+-- Itera todos los estudiantes de la vista v_estudiantes y llama a
+-- PR_INSERTA_MATERIAS para cada uno. Procedimiento orquestador.
 CREATE OR REPLACE PROCEDURE PR_MATRICULA_ESTUDIANTES AS
   CURSOR c IS
     SELECT dni, detalle_materias
@@ -453,6 +477,8 @@ EXCEPTION
 END PR_MATRICULA_ESTUDIANTES;
 /
 
+-- Genera PNUMAULAS aulas por cada sede con la capacidad especificada.
+-- Capacidad_Examen se fija a la mitad (distancia entre mesas).
 CREATE OR REPLACE PROCEDURE PR_RELLENA_AULAS(
   PNUMAULAS  IN NUMBER,
   PCAPACIDAD IN NUMBER
@@ -461,7 +487,7 @@ CREATE OR REPLACE PROCEDURE PR_RELLENA_AULAS(
 BEGIN
   FOR s IN (SELECT Codigo FROM SEDE) LOOP
     FOR i IN 1..PNUMAULAS LOOP
-      v_codigo := s.Codigo || '_' || TO_CHAR(i);
+      v_codigo := s.Codigo || '_' || TO_CHAR(i);    -- Código: SEDE_1, SEDE_2, ...
       INSERT INTO AULA(Codigo, Capacidad, Capacidad_Examen, Sede_Codigo)
       VALUES(v_codigo, PCAPACIDAD, PCAPACIDAD / 2, s.Codigo);
     END LOOP;
@@ -474,6 +500,7 @@ EXCEPTION
 END PR_RELLENA_AULAS;
 /
 
+-- Borra todas las aulas de una sede específica
 CREATE OR REPLACE PROCEDURE PR_BORRA_AULA_SEDE(
   PCODIGOSEDE IN SEDE.Codigo%TYPE
 ) AS
@@ -487,6 +514,7 @@ EXCEPTION
 END PR_BORRA_AULA_SEDE;
 /
 
+-- Borra todas las aulas de todas las sedes (usa PR_BORRA_AULA_SEDE por sede)
 CREATE OR REPLACE PROCEDURE PR_BORRA_AULAS AS
 BEGIN
   FOR s IN (SELECT Codigo FROM SEDE) LOOP
@@ -499,7 +527,7 @@ EXCEPTION
 END PR_BORRA_AULAS;
 /
 
--- PR_BORRA_AULA: borra un aula individual (requisito rubrica)
+-- Borra un aula individual por código (requisito rúbrica)
 CREATE OR REPLACE PROCEDURE PR_BORRA_AULA(
   PCODIGOAULA IN AULA.Codigo%TYPE
 ) AS
@@ -513,7 +541,9 @@ EXCEPTION
 END PR_BORRA_AULA;
 /
 
--- Trigger de auditoria (punto extra rubrica)
+-- Trigger de auditoría: ante cualquier INSERT/UPDATE/DELETE en ASISTENCIA,
+-- registra en LOG_ASISTENCIA el usuario, fecha, DNI del estudiante, materia
+-- y qué acción se realizó. :NEW y :OLD son pseudorregistros de la fila afectada.
 CREATE OR REPLACE TRIGGER TR_AUDIT_ASISTENCIA
 AFTER INSERT OR UPDATE OR DELETE ON ASISTENCIA
 FOR EACH ROW
@@ -533,23 +563,26 @@ END;
 -- PARTE 2: SEGUNDA ENTREGA - INDICES, MV, SINONIMO, CENTROS, ASIGNACION
 -- ============================================================================
 
--- Indices adicionales
+-- Índice function-based: acelera búsquedas por apellido en mayúsculas (case-insensitive)
 CREATE INDEX IDX_ESTUDIANTE_APELLIDOS_UP 
   ON ESTUDIANTE (UPPER(Apellidos)) TABLESPACE TS_INDICES;
+-- Índice B-tree para búsquedas exactas por correo electrónico
 CREATE INDEX IDX_ESTUDIANTE_CORREO 
   ON ESTUDIANTE (Correo) TABLESPACE TS_INDICES;
+-- Índice Bitmap para Centro_Codigo (baja cardinalidad: pocos centros, muchos estudiantes)
 CREATE BITMAP INDEX IDX_ESTUDIANTE_CENTRO_BM 
   ON ESTUDIANTE (Centro_Codigo) TABLESPACE TS_INDICES;
 
--- Indices para busquedas frecuentes
+-- Índices para acelerar JOINs y búsquedas frecuentes en ASISTENCIA
 CREATE INDEX IDX_ASISTENCIA_EST 
   ON ASISTENCIA (Estudiante_DNI) TABLESPACE TS_INDICES;
 CREATE INDEX IDX_ASISTENCIA_EXAMEN 
   ON ASISTENCIA (Examen_FechayHora) TABLESPACE TS_INDICES;
 
--- Secuencia y trigger para centros
+-- Secuencia para auto-generar códigos de centro numéricos
 CREATE SEQUENCE SEQ_CENTROS;
 
+-- Trigger BEFORE INSERT: si no se especifica Codigo, se auto-asigna con la secuencia
 CREATE OR REPLACE TRIGGER tr_centros
 BEFORE INSERT ON CENTRO 
 FOR EACH ROW
@@ -565,13 +598,13 @@ END tr_centros;
 -- POBLAR CENTROS Y ESTUDIANTES
 -- ============================================================================
 
--- Insertar centros desde la vista
+-- Extrae centros distintos de la vista de estudiantes y los inserta en CENTRO
 INSERT INTO CENTRO (Nombre) 
 SELECT DISTINCT centro FROM v_estudiantes;
 
 COMMIT;
 
--- Insertar estudiantes desde la vista
+-- Inserta estudiantes relacionando cada uno con su centro mediante JOIN por nombre
 INSERT INTO ESTUDIANTE (DNI, Nombre, Apellidos, Telefono, Correo, Centro_Codigo)
 SELECT 
     v.dni, 
@@ -585,11 +618,13 @@ JOIN CENTRO c ON UPPER(v.centro) = UPPER(c.Nombre);
 
 COMMIT;
 
--- Matricular estudiantes
+-- Matricula cada estudiante en sus materias correspondientes
 EXEC PR_MATRICULA_ESTUDIANTES;
 
--- Vista materializada y sinonimo para estudiantes
-
+-- Vista materializada que almacena físicamente el JOIN Estudiante-Centro
+-- BUILD IMMEDIATE: la puebla al crearse
+-- REFRESH FORCE ON DEMAND: se puede refrescar manualmente o con programa
+-- START WITH / NEXT: programa refresco diario a medianoche
 CREATE MATERIALIZED VIEW PAU.VM_ESTUDIANTES
 BUILD IMMEDIATE
 REFRESH FORCE ON DEMAND
@@ -600,10 +635,11 @@ SELECT e.DNI, e.Nombre, e.Apellidos, e.Telefono, e.Correo, c.Nombre AS Centro
 FROM PAU.ESTUDIANTE e
 JOIN PAU.CENTRO c ON e.Centro_Codigo = c.Codigo;
 
+-- Sinónimo público para acceder a VM_ESTUDIANTES sin calificar con esquema PAU
 CREATE PUBLIC SYNONYM S_ESTUDIANTES FOR PAU.VM_ESTUDIANTES;
 
 -- ============================================================================
--- PAQUETE PK_ASIGNA
+-- PAQUETE PK_ASIGNA: asigna centros a sedes para los exámenes PAU
 -- ============================================================================
 
 CREATE OR REPLACE PACKAGE PK_ASIGNA AS
@@ -614,6 +650,8 @@ END PK_ASIGNA;
 
 CREATE OR REPLACE PACKAGE BODY PK_ASIGNA AS
 
+    -- Calcula plazas disponibles en una sede:
+    -- suma(Capacidad_Examen de todas sus aulas) - estudiantes ya asignados
     FUNCTION F_PLAZAS(PSEDE IN VARCHAR2) RETURN NUMBER AS
         v_capacidad NUMBER;
         v_estudiantes NUMBER;
@@ -629,9 +667,13 @@ CREATE OR REPLACE PACKAGE BODY PK_ASIGNA AS
         RETURN v_capacidad - v_estudiantes;
     END F_PLAZAS;
 
+    -- Algoritmo de asignación de centros a sedes:
+    -- 1. Centros cuyo nombre coincide con una sede tipo 'INSTITUTO' se auto-asignan
+    -- 2. El resto se asigna a la sede con más plazas libres (de mayor a menor)
     PROCEDURE PR_ASIGNA_SEDE AS
         e_sin_espacio EXCEPTION;
         
+        -- Cursor explícito: centros sin sede asignada, ordenados por nº estudiantes descendente
         CURSOR c_centros_pendientes IS
             SELECT c.CODIGO, COUNT(e.DNI) as total_estudiantes
             FROM CENTRO c
@@ -643,7 +685,8 @@ CREATE OR REPLACE PACKAGE BODY PK_ASIGNA AS
         v_mejor_sede VARCHAR2(50);
         v_max_plazas NUMBER;
     BEGIN
-        -- Auto-asignar centros que son institutos
+        -- Auto-asignar centros cuyo nombre coincide con una sede de tipo 'INSTITUTO'
+        -- Ej: si existe centro "IES Málaga" y sede "IES Málaga" (tipo INSTITUTO), se asignan
         UPDATE CENTRO c
         SET SEDE_CODIGO = (
             SELECT s.CODIGO 
@@ -658,8 +701,9 @@ CREATE OR REPLACE PACKAGE BODY PK_ASIGNA AS
               AND UPPER(s.TIPO) = 'INSTITUTO'
         );
 
-        -- Recorrer centros pendientes
+        -- Recorrer centros pendientes de asignación (los más grandes primero)
         FOR v_centro IN c_centros_pendientes LOOP
+            -- Selecciona la sede con más plazas libres (función F_PLAZAS)
             SELECT CODIGO, plazas_libres INTO v_mejor_sede, v_max_plazas
             FROM (
                 SELECT CODIGO, PK_ASIGNA.F_PLAZAS(CODIGO) as plazas_libres
@@ -673,7 +717,7 @@ CREATE OR REPLACE PACKAGE BODY PK_ASIGNA AS
                 SET SEDE_CODIGO = v_mejor_sede
                 WHERE CODIGO = v_centro.CODIGO;
             ELSE
-                RAISE e_sin_espacio;
+                RAISE e_sin_espacio;    -- Excepción personalizada si no caben
             END IF;
         END LOOP;
 
@@ -697,7 +741,7 @@ END PK_ASIGNA;
 -- PARTE 3: TERCERA ENTREGA - OCUPACION, SEGURIDAD, TRIGGERS
 -- ============================================================================
 
--- Vistas de Ocupacion
+-- Vista: estudiantes asignados a cada examen (contando todos, independientemente de asistencia)
 CREATE OR REPLACE VIEW V_OCUPACION_ASIGNADA AS
 SELECT S.Codigo AS Sede_Codigo, S.Nombre AS Sede_Nombre,
        E.Aula_Codigo, E.FechayHora AS Fecha_Examen,
@@ -708,6 +752,7 @@ JOIN EXAMEN E ON AU.Codigo = E.Aula_Codigo
 JOIN ASISTENCIA A ON E.FechayHora = A.Examen_FechayHora
 GROUP BY S.Codigo, S.Nombre, E.Aula_Codigo, E.FechayHora;
 
+-- Vista: estudiantes que realmente asistieron (Asiste = 'S') a cada examen
 CREATE OR REPLACE VIEW V_OCUPACION AS
 SELECT S.Codigo AS Sede_Codigo, S.Nombre AS Sede_Nombre,
        E.Aula_Codigo, E.FechayHora AS Fecha_Examen,
@@ -719,6 +764,7 @@ JOIN ASISTENCIA A ON E.FechayHora = A.Examen_FechayHora
 WHERE A.Asiste = 'S'
 GROUP BY S.Codigo, S.Nombre, E.Aula_Codigo, E.FechayHora;
 
+-- Vista: número de vigilantes (vocales) asignados a cada examen
 CREATE OR REPLACE VIEW V_VIGILANTES AS
 SELECT S.Codigo AS Sede_Codigo, S.Nombre AS Sede_Nombre,
        E.Aula_Codigo, E.FechayHora AS Fecha_Examen,
@@ -730,7 +776,7 @@ JOIN EXAMEN_VOCAL_Vigilantes V ON E.FechayHora = V.Examen_FechayHora
 GROUP BY S.Codigo, S.Nombre, E.Aula_Codigo, E.FechayHora;
 
 
--- Paquete PK_OCUPACION
+-- Paquete PK_OCUPACION: funciones de validación de aforo y asignación de vocales
 CREATE OR REPLACE PACKAGE PK_OCUPACION AS
     FUNCTION OCUPACION_MAXIMA(p_sede VARCHAR2, p_aula VARCHAR2) RETURN NUMBER;
     FUNCTION OCUPACION_OK RETURN BOOLEAN;
@@ -742,6 +788,8 @@ END PK_OCUPACION;
 
 CREATE OR REPLACE PACKAGE BODY PK_OCUPACION AS
 
+    -- Calcula la ocupación máxima histórica de un aula (estudiantes + vocales)
+    -- usando subconsultas correlacionadas que referencian E.FechayHora
     FUNCTION OCUPACION_MAXIMA(p_sede VARCHAR2, p_aula VARCHAR2) RETURN NUMBER AS
         v_max_personas NUMBER;
     BEGIN
@@ -762,6 +810,9 @@ CREATE OR REPLACE PACKAGE BODY PK_OCUPACION AS
         RETURN v_max_personas;
     END OCUPACION_MAXIMA;
 
+    -- Verifica que ningún examen futuro supere los límites de aforo:
+    -- - Alumnos ≤ Capacidad_Examen
+    -- - Alumnos + Vocales ≤ Capacidad total
     FUNCTION OCUPACION_OK RETURN BOOLEAN AS
         v_infracciones NUMBER;
     BEGIN
@@ -786,6 +837,8 @@ CREATE OR REPLACE PACKAGE BODY PK_OCUPACION AS
         RETURN (v_infracciones = 0);
     END OCUPACION_OK;
 
+    -- Verifica si un vocal específico está asignado a más de un aula
+    -- en la misma fecha/hora (solapamiento de horarios)
     FUNCTION VOCAL_DUPLICADO(p_vocal_dni VARCHAR2) RETURN BOOLEAN AS
         v_max_asignaciones NUMBER;
     BEGIN
@@ -806,6 +859,8 @@ CREATE OR REPLACE PACKAGE BODY PK_OCUPACION AS
         RETURN (v_max_asignaciones > 1);
     END VOCAL_DUPLICADO;
 
+    -- Versión global de VOCAL_DUPLICADO: verifica si HAY ALGÚN vocal duplicado
+    -- (sin necesidad de pasar un DNI concreto)
     FUNCTION VOCALES_DUPLICADOS RETURN BOOLEAN AS
         v_max_global NUMBER;
     BEGIN
@@ -826,6 +881,8 @@ CREATE OR REPLACE PACKAGE BODY PK_OCUPACION AS
         RETURN (v_max_global > 1);
     END VOCALES_DUPLICADOS;
 
+    -- Verifica que ningún examen futuro supere el ratio alumnos/vocales
+    -- Ej: VOCAL_RATIO(30) → TRUE si todos tienen ≤30 alumnos por vocal
     FUNCTION VOCAL_RATIO(p_ratio NUMBER) RETURN BOOLEAN AS
         v_infracciones NUMBER;
     BEGIN
@@ -855,12 +912,15 @@ END PK_OCUPACION;
 -- SEGURIDAD: Roles y permisos
 -- ============================================================================
 
+-- Roles para agrupar privilegios por perfil de usuario
 CREATE ROLE ROL_ESTUDIANTE;
 CREATE ROLE ROL_VOCAL;
+-- Permiso mínimo de conexión para cada rol
 GRANT CREATE SESSION TO ROL_ESTUDIANTE;
 GRANT CREATE SESSION TO ROL_VOCAL;
 
--- Paquete PK_SEGURIDAD_PAU
+-- Paquete PK_SEGURIDAD_PAU: crea usuarios de Oracle dinámicamente para estudiantes y vocales
+-- Los parámetros OUT devuelven el usuario y contraseña generados al llamante
 CREATE OR REPLACE PACKAGE PK_SEGURIDAD_PAU AS
     PROCEDURE PR_CREA_ESTUDIANTE(
         p_dni VARCHAR2, p_usuario OUT VARCHAR2, p_password OUT VARCHAR2);
@@ -871,6 +931,9 @@ END PK_SEGURIDAD_PAU;
 
 CREATE OR REPLACE PACKAGE BODY PK_SEGURIDAD_PAU AS
 
+    -- Crea un usuario Oracle para un estudiante: valida existencia, genera
+    -- credenciales (usuario=EST_DNI, password=10 caracteres aleatorios),
+    -- asigna rol y registra en Usuario_BD
     PROCEDURE PR_CREA_ESTUDIANTE(
         p_dni VARCHAR2, p_usuario OUT VARCHAR2, p_password OUT VARCHAR2
     ) AS
@@ -882,8 +945,9 @@ CREATE OR REPLACE PACKAGE BODY PK_SEGURIDAD_PAU AS
         END IF;
 
         p_usuario := 'EST_' || p_dni;
-        p_password := DBMS_RANDOM.STRING('X', 10);
+        p_password := DBMS_RANDOM.STRING('X', 10);   -- Alfanumérica aleatoria
 
+        -- SQL dinámico para DDL (CREATE USER, GRANT no son SQL estático)
         EXECUTE IMMEDIATE 'CREATE USER ' || p_usuario || 
             ' IDENTIFIED BY "' || p_password || '" DEFAULT TABLESPACE TS_PAU';
         EXECUTE IMMEDIATE 'GRANT ROL_ESTUDIANTE TO ' || p_usuario;
@@ -894,6 +958,7 @@ CREATE OR REPLACE PACKAGE BODY PK_SEGURIDAD_PAU AS
         WHEN OTHERS THEN ROLLBACK; RAISE;
     END PR_CREA_ESTUDIANTE;
 
+    -- Análogo a PR_CREA_ESTUDIANTE pero para vocales (usuario=VOC_DNI, rol vocal)
     PROCEDURE PR_CREA_VOCAL(
         p_dni VARCHAR2, p_usuario OUT VARCHAR2, p_password OUT VARCHAR2
     ) AS
@@ -921,7 +986,8 @@ END PK_SEGURIDAD_PAU;
 /
 
 
--- Trigger TR_BORRA_AULA
+-- Trigger que impide borrar aulas con exámenes pasados o en las próximas 48h.
+-- Si no hay conflictos, borra en cascada los registros dependientes para mantener integridad.
 CREATE OR REPLACE TRIGGER TR_BORRA_AULA
 BEFORE DELETE ON AULA
 FOR EACH ROW
@@ -931,12 +997,13 @@ BEGIN
     SELECT COUNT(*) INTO v_examenes_invalidos
     FROM EXAMEN
     WHERE Aula_Codigo = :OLD.Codigo
-      AND FechayHora < (SYSDATE + 2); 
+      AND FechayHora < (SYSDATE + 2);    -- Exámenes pasados o en las próximas 48h
 
     IF v_examenes_invalidos > 0 THEN
         RAISE_APPLICATION_ERROR(-20001, 
           'Error: El aula tiene examenes realizados o en las proximas 48h.');
     ELSE
+        -- Borrado en cascada manual: ASISTENCIA → EXAMEN_MATERIA → EXAMEN_VOCAL → EXAMEN
         DELETE FROM ASISTENCIA 
         WHERE Examen_FechayHora IN (
           SELECT FechayHora FROM EXAMEN WHERE Aula_Codigo = :OLD.Codigo);
@@ -953,7 +1020,10 @@ END TR_BORRA_AULA;
 /
 
 
--- Procedimiento DESPISTE
+-- Procedimiento DESPISTE: reubica a un estudiante que acudió a la sede equivocada
+-- Solo funciona si el primer examen del día está dentro de una ventana de 1 hora
+-- Mueve el primer examen al aula indicada, y los siguientes los reasigna a aulas
+-- libres en la nueva sede que tengan capacidad suficiente
 CREATE OR REPLACE PROCEDURE DESPISTE(
     p_dni VARCHAR2, p_examen_fecha DATE, 
     p_aula_nueva VARCHAR2, p_sede_nueva VARCHAR2
@@ -961,6 +1031,7 @@ CREATE OR REPLACE PROCEDURE DESPISTE(
     v_primera_hora DATE;
     v_aula_libre VARCHAR2(20);
 BEGIN
+    -- Busca la primera hora de examen del estudiante en esa fecha
     SELECT MIN(Examen_FechayHora) INTO v_primera_hora
     FROM ASISTENCIA
     WHERE Estudiante_DNI = p_dni 
@@ -970,14 +1041,17 @@ BEGIN
         RAISE_APPLICATION_ERROR(-20001, 'No se encontraron examenes para esa fecha.');
     END IF;
 
+    -- Solo permite reubicación si faltan menos de 1h para el examen
     IF NOT (v_primera_hora BETWEEN SYSDATE AND (SYSDATE + 1/24)) THEN
         RAISE_APPLICATION_ERROR(-20001, 'Fuera de ventana de reubicacion (1h).');
     END IF;
 
+    -- Reubica el primer examen directamente al aula indicada
     UPDATE ASISTENCIA
     SET Aula_Codigo = p_aula_nueva, Sede_Codigo = p_sede_nueva
     WHERE Estudiante_DNI = p_dni AND Examen_FechayHora = v_primera_hora;
 
+    -- Para el resto de exámenes del día, busca aulas libres automáticamente
     FOR rec IN (
         SELECT Examen_FechayHora, Materia_Codigo
         FROM ASISTENCIA
@@ -986,6 +1060,7 @@ BEGIN
           AND Examen_FechayHora > v_primera_hora
     ) LOOP
         BEGIN
+            -- Busca un aula en la sede destino con capacidad disponible para ese horario
             SELECT A.Codigo INTO v_aula_libre
             FROM AULA A
             WHERE A.Sede_Codigo = p_sede_nueva
@@ -1016,12 +1091,14 @@ END DESPISTE;
 /
 
 
--- Procedimiento MIGRAR_CENTRO
+-- Procedimiento MIGRAR_CENTRO: migra todos los estudiantes de un centro
+-- de una sede origen a una sede destino, reasignando aulas con capacidad disponible
 CREATE OR REPLACE PROCEDURE MIGRAR_CENTRO(
     p_centro VARCHAR2, p_sede_origen VARCHAR2, p_sede_destino VARCHAR2
 ) AS
     v_aula_libre VARCHAR2(20);
 BEGIN
+    -- Itera todas las asistencias de estudiantes del centro en la sede origen
     FOR rec_asistencia IN (
         SELECT AST.Estudiante_DNI, AST.Examen_FechayHora, AST.Materia_Codigo
         FROM ASISTENCIA AST
@@ -1030,6 +1107,7 @@ BEGIN
           AND AST.Sede_Codigo = p_sede_origen
     ) LOOP
         BEGIN
+            -- Busca aula libre en la sede destino para cada fecha/hora
             SELECT A.Codigo INTO v_aula_libre
             FROM AULA A
             WHERE A.Sede_Codigo = p_sede_destino
@@ -1041,6 +1119,7 @@ BEGIN
               )
             AND ROWNUM = 1;
 
+            -- Reasigna la asistencia a la nueva sede y aula
             UPDATE ASISTENCIA
             SET Sede_Codigo = p_sede_destino, Aula_Codigo = v_aula_libre
             WHERE Estudiante_DNI = rec_asistencia.Estudiante_DNI 
@@ -1056,7 +1135,8 @@ END MIGRAR_CENTRO;
 /
 
 
--- Trigger TR_MIGRAR_CENTRO
+-- Trigger que dispara MIGRAR_CENTRO automáticamente al cambiar la sede de un centro
+-- Se activa solo en AFTER UPDATE OF Sede_Codigo para evitar migraciones innecesarias
 CREATE OR REPLACE TRIGGER TR_MIGRAR_CENTRO
 AFTER UPDATE OF Sede_Codigo ON CENTRO
 FOR EACH ROW
@@ -1069,20 +1149,24 @@ END TR_MIGRAR_CENTRO;
 
 
 -- ============================================================================
--- VISTAS DE SEGURIDAD
+-- VISTAS DE SEGURIDAD: cada usuario ve solo sus datos mediante USER
 -- ============================================================================
 
+-- Cada estudiante ve solo sus propias asignaciones de examen
 CREATE OR REPLACE VIEW V_MI_ASIGNACION AS
 SELECT a.Materia_Codigo, a.Examen_FechayHora, a.Sede_Codigo, a.Aula_Codigo
 FROM ASISTENCIA a
 JOIN ESTUDIANTE e ON a.Estudiante_DNI = e.DNI
 WHERE e.Usuario_BD = USER;
 
+-- Cada estudiante ve solo sus datos personales
 CREATE OR REPLACE VIEW V_MIS_DATOS AS
 SELECT DNI, Nombre, Apellidos, Telefono, Correo, Centro_Codigo 
 FROM ESTUDIANTE
 WHERE Usuario_BD = USER;
 
+-- Cada vocal ve los exámenes donde participa (como principal o como vigilante),
+-- diferenciando el rol mediante UNION de dos consultas
 CREATE OR REPLACE VIEW V_MI_VIGILANCIA AS
 SELECT e.FechayHora, e.Aula_Codigo, 'PRINCIPAL' as Rol_Vigilancia,
        e.Num_Estudiantes_Presentes
@@ -1096,12 +1180,14 @@ JOIN EXAMEN ex ON ev.Examen_FechayHora = ex.FechayHora
 JOIN VOCAL v ON ev.Vocal_DNI = v.DNI
 WHERE v.Usuario_BD = USER;
 
+-- Cada vocal responsable ve la sede que gestiona
 CREATE OR REPLACE VIEW V_MI_SEDE_GESTION AS
 SELECT s.Codigo, s.Nombre, s.Tipo
 FROM SEDE s
 JOIN VOCAL v ON s.Vocal_Responsable_DNI = v.DNI
 WHERE v.Usuario_BD = USER;
 
+-- Vista global para el Servicio de Acceso (todo el personal administrativo)
 CREATE OR REPLACE VIEW V_ASIGNACION_GLOBAL AS
 SELECT c.Nombre AS Centro_Nombre,
        e.Nombre || ' ' || e.Apellidos AS Estudiante,
@@ -1111,14 +1197,17 @@ JOIN ESTUDIANTE e ON a.Estudiante_DNI = e.DNI
 JOIN CENTRO c ON e.Centro_Codigo = c.Codigo
 JOIN SEDE s ON a.Sede_Codigo = s.Codigo;
 
+-- Rol para personal del Servicio de Acceso (visión global)
 CREATE ROLE ROL_ACCESO;
 GRANT CREATE SESSION TO ROL_ACCESO;
 
--- Permisos a roles
+-- Permisos: cada rol recibe solo los privilegios necesarios (mínimo privilegio)
+-- Estudiantes: solo SELECT sobre sus vistas personales
 GRANT SELECT ON V_OCUPACION_ASIGNADA TO ROL_ESTUDIANTE;
 GRANT SELECT ON V_MI_ASIGNACION TO ROL_ESTUDIANTE;
 GRANT SELECT ON V_MIS_DATOS TO ROL_ESTUDIANTE;
 
+-- Vocales: SELECT + UPDATE limitado a columnas específicas
 GRANT SELECT ON EXAMEN TO ROL_VOCAL;
 GRANT UPDATE (Num_Estudiantes_Presentes) ON EXAMEN TO ROL_VOCAL;
 GRANT SELECT ON V_MI_VIGILANCIA TO ROL_VOCAL;
@@ -1126,6 +1215,7 @@ GRANT UPDATE (Asiste) ON ASISTENCIA TO ROL_VOCAL;
 GRANT SELECT ON V_MI_SEDE_GESTION TO ROL_VOCAL;
 GRANT SELECT, UPDATE (Nombre, Tipo) ON SEDE TO ROL_VOCAL;
 
+-- Servicio de Acceso: acceso global de solo lectura + asignación de sedes
 GRANT SELECT ON V_ASIGNACION_GLOBAL TO ROL_ACCESO;
 GRANT EXECUTE ON PK_ASIGNA TO ROL_ACCESO;
 GRANT SELECT ON V_OCUPACION_ASIGNADA TO ROL_ACCESO;
@@ -1138,25 +1228,29 @@ GRANT UPDATE (Vocal_Responsable_DNI, Vocal_Secretario_DNI) ON SEDE TO ROL_ACCESO
 -- SEGURIDAD: Politicas, auditoria, restricciones
 -- ============================================================================
 
--- Politica de contraseñas
+-- Política de contraseñas a nivel de perfil DEFAULT (afecta a todos los usuarios)
 ALTER PROFILE DEFAULT LIMIT
-  FAILED_LOGIN_ATTEMPTS 5
-  PASSWORD_LIFE_TIME    30
-  PASSWORD_GRACE_TIME   5
-  PASSWORD_LOCK_TIME    1;
+  FAILED_LOGIN_ATTEMPTS 5     -- Bloquea tras 5 intentos fallidos
+  PASSWORD_LIFE_TIME    30    -- Contraseña expira a los 30 días
+  PASSWORD_GRACE_TIME   5     -- Periodo de gracia de 5 días antes de bloquear
+  PASSWORD_LOCK_TIME    1;    -- Se desbloquea tras 1 día
 
--- VPD para estudiantes
+-- VPD (Virtual Private Database): seguridad obligatoria a nivel de fila
+-- La función retorna una condición WHERE que se añade automáticamente a toda
+-- consulta sobre ESTUDIANTE. PAU ve todas las filas (NULL = sin filtro);
+-- el resto de usuarios ven solo WHERE Usuario_BD = USER
 CREATE OR REPLACE FUNCTION FN_ESTUDIANTE_VPD(
   p_schema VARCHAR2, p_object VARCHAR2
 ) RETURN VARCHAR2 AS
 BEGIN
   IF SYS_CONTEXT('USERENV', 'SESSION_USER') = 'PAU' THEN
-    RETURN NULL;
+    RETURN NULL;      -- PAU (propietario) ve todo sin filtro
   END IF;
-  RETURN 'Usuario_BD = USER';
+  RETURN 'Usuario_BD = USER';   -- Resto ve solo sus filas
 END;
 /
 
+-- Limpieza idempotente de la política VPD previa
 BEGIN
   DBMS_RLS.DROP_POLICY(
     object_schema => 'PAU',
@@ -1167,6 +1261,7 @@ EXCEPTION WHEN OTHERS THEN NULL;
 END;
 /
 
+-- Aplica la política VPD a la tabla ESTUDIANTE
 BEGIN
   DBMS_RLS.ADD_POLICY(
     object_schema => 'PAU',
@@ -1178,7 +1273,8 @@ BEGIN
 END;
 /
 
--- Auditoria unificada (Oracle 23ai)
+-- Auditoría unificada (Oracle 23ai): registra cada UPDATE sobre ASISTENCIA
+-- Las trazas quedan en UNIFIED_AUDIT_TRAIL (quién, cuándo, valores)
 CREATE AUDIT POLICY audit_asistencia_updates
   ACTIONS UPDATE ON PAU.ASISTENCIA;
 AUDIT POLICY audit_asistencia_updates;
@@ -1188,33 +1284,34 @@ AUDIT POLICY audit_asistencia_updates;
 -- PARTE 4: RUBRICA - RESTRICCIONES ADICIONALES
 -- ============================================================================
 
--- Restricciones de Formato DNI (NOVALIDATE para datos importados)
+-- Formato DNI: 8 dígitos + 1 letra mayúscula (NOVALIDATE = no revisa datos existentes)
 ALTER TABLE ESTUDIANTE ADD CONSTRAINT CHK_ESTUDIANTE_DNI_FORMAT
   CHECK (REGEXP_LIKE(DNI, '^[0-9]{8}[A-Z]$')) NOVALIDATE;
 ALTER TABLE VOCAL ADD CONSTRAINT CHK_VOCAL_DNI_FORMAT
   CHECK (REGEXP_LIKE(DNI, '^[0-9]{8}[A-Z]$')) NOVALIDATE;
 
--- Restricciones de Aforo y Espacio
+-- Integridad semántica: capacidades de aula deben ser positivas y coherentes
 ALTER TABLE AULA ADD CONSTRAINT CHK_AULA_CAPACIDAD 
   CHECK (Capacidad > 0);
 ALTER TABLE AULA ADD CONSTRAINT CHK_AULA_CAP_EXAMEN 
   CHECK (Capacidad_Examen > 0 AND Capacidad_Examen <= Capacidad);
 
--- Restricciones Semanticas y de Logica de Negocio
+-- Restricciones de lógica de negocio
 ALTER TABLE EXAMEN ADD CONSTRAINT CHK_EXAMEN_NUM_EST 
   CHECK (Num_Estudiantes_Presentes >= 0);
 ALTER TABLE ASISTENCIA ADD CONSTRAINT CHK_ASISTENCIA_ASISTE_VALUES 
-  CHECK (Asiste IN ('S', 'N'));
+  CHECK (Asiste IN ('S', 'N'));          -- Solo S(í) o N(o)
 ALTER TABLE ASISTENCIA ADD CONSTRAINT CHK_ASISTENCIA_ENTREGA_VALUES 
-  CHECK (Entrega IN ('S', 'N'));
+  CHECK (Entrega IN ('S', 'N'));         -- Solo S(í) o N(o)
 ALTER TABLE CENTRO ADD CONSTRAINT CHK_CENTRO_NOMBRE_NOT_NULL 
   CHECK (Nombre IS NOT NULL);
 
 
 -- ============================================================================
--- COMPROBACIONES FINALES
+-- COMPROBACIONES FINALES: verifican que todo se creó y pobló correctamente
 -- ============================================================================
 
+-- Cuenta objetos del esquema por tipo (tablas, índices, vistas, procedimientos, paquetes, triggers)
 SELECT 'TABLAS' AS tipo, COUNT(*) AS total FROM user_tables
 UNION ALL
 SELECT 'INDICES', COUNT(*) FROM user_indexes
@@ -1227,6 +1324,7 @@ SELECT 'PAQUETES', COUNT(*) FROM user_objects WHERE object_type = 'PACKAGE'
 UNION ALL
 SELECT 'TRIGGERS', COUNT(*) FROM user_triggers;
 
+-- Cuenta registros en cada tabla para verificar la carga de datos
 SELECT 'VOCALES' AS tabla, COUNT(*) AS total FROM VOCAL
 UNION ALL
 SELECT 'MATERIAS', COUNT(*) FROM MATERIA
